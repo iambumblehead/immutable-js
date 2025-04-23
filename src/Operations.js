@@ -1545,23 +1545,25 @@ const seqKeyedToKeyedSeq = (seqkeyed) => {
 };
 
 const collectionKeyedFlip = (collection) => {
-  return reify(collection, flipFactory(collection));  
-}
+  return reify(collection, flipFactory(collection));
+};
 
 const collectionKeyedMapEntries = (collection, mapper, context) => {
   let iterations = 0;
   return reify(
     collection,
-    collection.toSeq()
+    collection
+      .toSeq()
       .map((v, k) => mapper.call(context, [k, v], iterations++, collection))
       .fromEntrySeq()
   );
-}
+};
 
 const collectionKeyedMapKeys = (collection, mapper, context) => {
   return reify(
     collection,
-    collection.toSeq()
+    collection
+      .toSeq()
       .flip()
       .map((k, v) => mapper.call(context, k, v, collection))
       .flip()
@@ -1570,65 +1572,68 @@ const collectionKeyedMapKeys = (collection, mapper, context) => {
 
 const collectionSetGet = (collection, value, notSetValue) => {
   return collection.has(value) ? value : notSetValue;
-}
+};
 
 const collectionSetIncludes = (collection, value) => {
   return collection.has(value);
-}
+};
 
 const collectionSetKeySeq = (collection) => {
   return collection.valueSeq();
-}
+};
 
 const collectionIndexedToKeyedSeq = (collection) => {
   return new ToKeyedSequence(collection, false);
-}
+};
 
 const collectionIndexedFilter = (collection, predicate, context) => {
-  return reify(collection, filterFactory(collection, predicate, context, false));
-}
+  return reify(
+    collection,
+    filterFactory(collection, predicate, context, false)
+  );
+};
 
 const collectionIndexedFindIndex = (collection, predicate, context) => {
   const entry = collection.findEntry(predicate, context);
   return entry ? entry[0] : -1;
-}
+};
 
 const collectionIndexedIndexOf = (collection, searchValue) => {
   const key = collection.keyOf(searchValue);
   return key === undefined ? -1 : key;
-}
+};
 
 const collectionIndexedLastIndexOf = (collection, searchValue) => {
   const key = collection.lastKeyOf(searchValue);
   return key === undefined ? -1 : key;
-}
+};
 
 const collectionIndexedReverse = (collection) => {
   return reify(collection, reverseFactory(collection, false));
-}
+};
 
 const collectionIndexedSlice = (collection, begin, end) => {
   return reify(collection, sliceFactory(collection, begin, end, false));
-}
+};
 
 const collectionIndexedSplice = (collection, index, removeNum, values) => {
   return collectionSplice(collection, index, removeNum, values);
-}
+};
 
 // ### More collection methods
 
 const collectionIndexedFindLastIndex = (collection, predicate, context) => {
   const entry = collection.findLastEntry(predicate, context);
   return entry ? entry[0] : -1;
-}
+};
 
 const collectionIndexedFirst = (collection, notSetValue) => {
   return collection.get(0, notSetValue);
-}
+};
 
 const collectionIndexedFlatten = (collection, depth) => {
   return reify(collection, flattenFactory(collection, depth, false));
-}
+};
 
 const collectionIndexedGet = (collection, index, notSetValue) => {
   index = wrapIndex(collection, index);
@@ -1637,65 +1642,71 @@ const collectionIndexedGet = (collection, index, notSetValue) => {
     (collection.size !== undefined && index > collection.size)
     ? notSetValue
     : collection.find((_, key) => key === index, undefined, notSetValue);
-}
+};
 
 const collectionIndexedHas = (collection, index) => {
   index = wrapIndex(collection, index);
   return (
     index >= 0 &&
-      (collection.size !== undefined
-        ? collection.size === Infinity || index < collection.size
-        : collection.indexOf(index) !== -1)
+    (collection.size !== undefined
+      ? collection.size === Infinity || index < collection.size
+      : collection.indexOf(index) !== -1)
   );
-}
+};
 
 const collectionIndexedInterpose = (collection, separator) => {
   return reify(collection, interposeFactory(collection, separator));
-}
+};
 
 const collectionIndexedInterleave = (collection, collections) => {
   return collectionInterleave(collection, collections, IndexedSeq.of);
-}
+};
 
 const collectionIndexedKeySeq = (collection) => {
   return Range(0, collection.size);
-}
+};
 
 const collectionIndexedLast = (collection, notSetValue) => {
   return collection.get(-1, notSetValue);
-}
+};
 
 const collectionIndexedSkipWhile = (collection, predicate, context) => {
-  return reify(collection, skipWhileFactory(collection, predicate, context, false));
-}
+  return reify(
+    collection,
+    skipWhileFactory(collection, predicate, context, false)
+  );
+};
 
 const collectionIndexedZip = (collection, collections) => {
   collections = [collection].concat(arrCopy(collections));
-  return reify(collection, zipWithFactory(collection, defaultZipper, collections));
-}
+  return reify(
+    collection,
+    zipWithFactory(collection, defaultZipper, collections)
+  );
+};
 
 const collectionIndexedZipAll = (collection, collections) => {
   collections = [collection].concat(arrCopy(collections));
-  return reify(collection, zipWithFactory(collection, defaultZipper, collections, true));
-}
+  return reify(
+    collection,
+    zipWithFactory(collection, defaultZipper, collections, true)
+  );
+};
 
 const collectionIndexedZipWith = (collection, zipper, collections) => {
   collections = [collection].concat(arrCopy(collections));
 
   return reify(collection, zipWithFactory(collection, zipper, collections));
-}
+};
 
 export {
   seqArrayGet,
-
   collectionSetGet,
   collectionSetIncludes,
   collectionSetKeySeq,
-
   collectionKeyedFlip,
   collectionKeyedMapEntries,
   collectionKeyedMapKeys,
-
   collectionToArray,
   collectionToIndexedSeq,
   collectionToJS,
@@ -1770,7 +1781,6 @@ export {
   collectionSortBy,
   collectionTakeUntil,
   collectionHashCode,
-
   collectionIndexedToKeyedSeq,
   collectionIndexedFilter,
   collectionIndexedFindIndex,
@@ -1791,5 +1801,5 @@ export {
   collectionIndexedSkipWhile,
   collectionIndexedZip,
   collectionIndexedZipAll,
-  collectionIndexedZipWith
+  collectionIndexedZipWith,
 };

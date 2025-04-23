@@ -18,12 +18,7 @@ import { getIn } from './methods/getIn';
 import { hasIn } from './methods/hasIn';
 import { toObject } from './methods/toObject';
 
-import {
-  IndexedSeqImpl,
-  KeyedSeqImpl,
-  SetSeqImpl,
-  ArraySeq,
-} from './Seq';
+import { IndexedSeqImpl, KeyedSeqImpl, SetSeqImpl, ArraySeq } from './Seq';
 
 import {
   collectionToArray,
@@ -98,15 +93,12 @@ import {
   collectionSortBy,
   collectionTakeUntil,
   collectionHashCode,
-
   collectionSetGet,
   collectionSetIncludes,
   collectionSetKeySeq,
-  
   collectionKeyedFlip,
   collectionKeyedMapEntries,
   collectionKeyedMapKeys,
-
   collectionIndexedToKeyedSeq,
   collectionIndexedFilter,
   collectionIndexedFindIndex,
@@ -127,7 +119,7 @@ import {
   collectionIndexedSkipWhile,
   collectionIndexedZip,
   collectionIndexedZipAll,
-  collectionIndexedZipWith
+  collectionIndexedZipWith,
 } from './Operations';
 
 export { Collection, CollectionPrototype, IndexedCollectionPrototype };
@@ -461,15 +453,15 @@ mixin(KeyedCollectionImpl, {
   // ### More sequential methods
 
   flip() {
-    return collectionKeyedFlip(this)
+    return collectionKeyedFlip(this);
   },
 
   mapEntries(mapper, context) {
-    return collectionKeyedMapEntries(this, mapper, context)
+    return collectionKeyedMapEntries(this, mapper, context);
   },
 
   mapKeys(mapper, context) {
-    return collectionKeyedMapKeys(this, mapper, context)
+    return collectionKeyedMapKeys(this, mapper, context);
   },
 });
 
@@ -484,58 +476,59 @@ mixin(IndexedCollectionImpl, {
   // ### Conversion to other types
 
   toKeyedSeq() {
-    return collectionIndexedToKeyedSeq(this)
+    return collectionIndexedToKeyedSeq(this);
   },
 
   // ### ES6 Collection methods (ES6 Array and Map)
 
   filter(predicate, context) {
-    return collectionIndexedFilter(this, predicate, context)
+    return collectionIndexedFilter(this, predicate, context);
   },
 
   findIndex(predicate, context) {
-    return collectionIndexedFindIndex(this, predicate, context)
+    return collectionIndexedFindIndex(this, predicate, context);
   },
 
   indexOf(searchValue) {
-    return collectionIndexedIndexOf(this, searchValue)
+    return collectionIndexedIndexOf(this, searchValue);
   },
 
   lastIndexOf(searchValue) {
-    return collectionIndexedLastIndexOf(this, searchValue)
+    return collectionIndexedLastIndexOf(this, searchValue);
   },
 
   reverse() {
-    return collectionIndexedReverse(this)
+    return collectionIndexedReverse(this);
   },
 
   slice(begin, end) {
-    return collectionIndexedSlice(this, begin, end)
+    return collectionIndexedSlice(this, begin, end);
   },
 
   splice(index, removeNum, ...values) {
-    return collectionIndexedSplice(this, index, removeNum, values)
+    return collectionIndexedSplice(this, index, removeNum, values);
   },
 
   // ### More collection methods
 
   findLastIndex(predicate, context) {
-    return collectionIndexedFindLastIndex(this, predicate, context)  },
+    return collectionIndexedFindLastIndex(this, predicate, context);
+  },
 
   first(notSetValue) {
-    return collectionIndexedFirst(this, notSetValue)
+    return collectionIndexedFirst(this, notSetValue);
   },
 
   flatten(depth) {
-    return collectionIndexedFlatten(this, depth)
+    return collectionIndexedFlatten(this, depth);
   },
 
   get(index, notSetValue) {
-    return collectionIndexedGet(this, index, notSetValue)
+    return collectionIndexedGet(this, index, notSetValue);
   },
 
   has(index) {
-    return collectionIndexedHas(this, index)
+    return collectionIndexedHas(this, index);
   },
 
   interpose(separator) {
@@ -568,7 +561,7 @@ mixin(IndexedCollectionImpl, {
 
   zipWith(zipper, ...collections) {
     return collectionIndexedZipWith(this, zipper, collections);
-  }
+  },
 });
 
 const IndexedCollectionPrototype = IndexedCollectionImpl.prototype;
@@ -583,12 +576,12 @@ mixin(SetCollectionImpl, {
   },
 
   includes(value) {
-    return collectionSetIncludes(this, value)
+    return collectionSetIncludes(this, value);
   },
 
   // ### More sequential methods
   keySeq() {
-    return collectionSetKeySeq(this)
+    return collectionSetKeySeq(this);
   },
 });
 
