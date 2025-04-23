@@ -1,21 +1,15 @@
-import { is } from './is';
 import { Collection, KeyedCollection, KeyedCollectionImpl } from './Collection';
 import { IS_MAP_SYMBOL, isMap } from './predicates/isMap';
 import { isOrdered } from './predicates/isOrdered';
 import {
   DELETE,
-  SHIFT,
-  SIZE,
-  MASK,
   NOT_SET,
-  OwnerID,
-  MakeRef,
-  SetRef,
+
+  MakeRef
 } from './TrieUtils';
-import { hash } from './Hash';
+
 import { Iterator, iteratorValue, iteratorDone } from './Iterator';
 import { sortFactory } from './Operations';
-import arrCopy from './utils/arrCopy';
 import assertNotInfinite from './utils/assertNotInfinite';
 import { setIn } from './methods/setIn';
 import { deleteIn } from './methods/deleteIn';
@@ -31,6 +25,15 @@ import { asImmutable } from './methods/asImmutable';
 import { wasAltered } from './methods/wasAltered';
 
 import { OrderedMap } from './OrderedMap';
+
+import {
+  NodeArrayMap,
+  NodeHashArrayMap,
+  NodeHashCollision,
+  NodeBitmapIndexed,
+  NodeValue,
+  nodeUpdate,
+} from './Node';
 
 export const Map = (value) =>
   value === undefined || value === null
@@ -176,356 +179,8 @@ MapPrototype['@@transducer/result'] = function (obj) {
   return obj.asImmutable();
 };
 
-// #pragma Trie Nodes
-
-class ArrayMapNode {
-  constructor(ownerID, entries) {
-    this.ownerID = ownerID;
-    this.entries = entries;
-  }
-
-  get(shift, keyHash, key, notSetValue) {
-    const entries = this.entries;
-    for (let ii = 0, len = entries.length; ii < len; ii++) {
-      if (is(key, entries[ii][0])) {
-        return entries[ii][1];
-      }
-    }
-    return notSetValue;
-  }
-
-  update(ownerID, shift, keyHash, key, value, didChangeSize, didAlter) {
-    const removed = value === NOT_SET;
-
-    const entries = this.entries;
-    let idx = 0;
-    const len = entries.length;
-    for (; idx < len; idx++) {
-      if (is(key, entries[idx][0])) {
-        break;
-      }
-    }
-    const exists = idx < len;
-
-    if (exists ? entries[idx][1] === value : removed) {
-      return this;
-    }
-
-    SetRef(didAlter);
-    // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- TODO enable eslint here
-    (removed || !exists) && SetRef(didChangeSize);
-
-    if (removed && entries.length === 1) {
-      return; // undefined
-    }
-
-    if (!exists && !removed && entries.length >= MAX_ARRAY_MAP_SIZE) {
-      return createNodes(ownerID, entries, key, value);
-    }
-
-    const isEditable = ownerID && ownerID === this.ownerID;
-    const newEntries = isEditable ? entries : arrCopy(entries);
-
-    if (exists) {
-      if (removed) {
-        // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- TODO enable eslint here
-        idx === len - 1
-          ? newEntries.pop()
-          : (newEntries[idx] = newEntries.pop());
-      } else {
-        newEntries[idx] = [key, value];
-      }
-    } else {
-      newEntries.push([key, value]);
-    }
-
-    if (isEditable) {
-      this.entries = newEntries;
-      return this;
-    }
-
-    return new ArrayMapNode(ownerID, newEntries);
-  }
-}
-
-class BitmapIndexedNode {
-  constructor(ownerID, bitmap, nodes) {
-    this.ownerID = ownerID;
-    this.bitmap = bitmap;
-    this.nodes = nodes;
-  }
-
-  get(shift, keyHash, key, notSetValue) {
-    if (keyHash === undefined) {
-      keyHash = hash(key);
-    }
-    const bit = 1 << ((shift === 0 ? keyHash : keyHash >>> shift) & MASK);
-    const bitmap = this.bitmap;
-    return (bitmap & bit) === 0
-      ? notSetValue
-      : this.nodes[popCount(bitmap & (bit - 1))].get(
-          shift + SHIFT,
-          keyHash,
-          key,
-          notSetValue
-        );
-  }
-
-  update(ownerID, shift, keyHash, key, value, didChangeSize, didAlter) {
-    if (keyHash === undefined) {
-      keyHash = hash(key);
-    }
-    const keyHashFrag = (shift === 0 ? keyHash : keyHash >>> shift) & MASK;
-    const bit = 1 << keyHashFrag;
-    const bitmap = this.bitmap;
-    const exists = (bitmap & bit) !== 0;
-
-    if (!exists && value === NOT_SET) {
-      return this;
-    }
-
-    const idx = popCount(bitmap & (bit - 1));
-    const nodes = this.nodes;
-    const node = exists ? nodes[idx] : undefined;
-    const newNode = updateNode(
-      node,
-      ownerID,
-      shift + SHIFT,
-      keyHash,
-      key,
-      value,
-      didChangeSize,
-      didAlter
-    );
-
-    if (newNode === node) {
-      return this;
-    }
-
-    if (!exists && newNode && nodes.length >= MAX_BITMAP_INDEXED_SIZE) {
-      return expandNodes(ownerID, nodes, bitmap, keyHashFrag, newNode);
-    }
-
-    if (
-      exists &&
-      !newNode &&
-      nodes.length === 2 &&
-      isLeafNode(nodes[idx ^ 1])
-    ) {
-      return nodes[idx ^ 1];
-    }
-
-    if (exists && newNode && nodes.length === 1 && isLeafNode(newNode)) {
-      return newNode;
-    }
-
-    const isEditable = ownerID && ownerID === this.ownerID;
-    const newBitmap = exists ? (newNode ? bitmap : bitmap ^ bit) : bitmap | bit;
-    const newNodes = exists
-      ? newNode
-        ? setAt(nodes, idx, newNode, isEditable)
-        : spliceOut(nodes, idx, isEditable)
-      : spliceIn(nodes, idx, newNode, isEditable);
-
-    if (isEditable) {
-      this.bitmap = newBitmap;
-      this.nodes = newNodes;
-      return this;
-    }
-
-    return new BitmapIndexedNode(ownerID, newBitmap, newNodes);
-  }
-}
-
-class HashArrayMapNode {
-  constructor(ownerID, count, nodes) {
-    this.ownerID = ownerID;
-    this.count = count;
-    this.nodes = nodes;
-  }
-
-  get(shift, keyHash, key, notSetValue) {
-    if (keyHash === undefined) {
-      keyHash = hash(key);
-    }
-    const idx = (shift === 0 ? keyHash : keyHash >>> shift) & MASK;
-    const node = this.nodes[idx];
-    return node
-      ? node.get(shift + SHIFT, keyHash, key, notSetValue)
-      : notSetValue;
-  }
-
-  update(ownerID, shift, keyHash, key, value, didChangeSize, didAlter) {
-    if (keyHash === undefined) {
-      keyHash = hash(key);
-    }
-    const idx = (shift === 0 ? keyHash : keyHash >>> shift) & MASK;
-    const removed = value === NOT_SET;
-    const nodes = this.nodes;
-    const node = nodes[idx];
-
-    if (removed && !node) {
-      return this;
-    }
-
-    const newNode = updateNode(
-      node,
-      ownerID,
-      shift + SHIFT,
-      keyHash,
-      key,
-      value,
-      didChangeSize,
-      didAlter
-    );
-    if (newNode === node) {
-      return this;
-    }
-
-    let newCount = this.count;
-    if (!node) {
-      newCount++;
-    } else if (!newNode) {
-      newCount--;
-      if (newCount < MIN_HASH_ARRAY_MAP_SIZE) {
-        return packNodes(ownerID, nodes, newCount, idx);
-      }
-    }
-
-    const isEditable = ownerID && ownerID === this.ownerID;
-    const newNodes = setAt(nodes, idx, newNode, isEditable);
-
-    if (isEditable) {
-      this.count = newCount;
-      this.nodes = newNodes;
-      return this;
-    }
-
-    return new HashArrayMapNode(ownerID, newCount, newNodes);
-  }
-}
-
-class HashCollisionNode {
-  constructor(ownerID, keyHash, entries) {
-    this.ownerID = ownerID;
-    this.keyHash = keyHash;
-    this.entries = entries;
-  }
-
-  get(shift, keyHash, key, notSetValue) {
-    const entries = this.entries;
-    for (let ii = 0, len = entries.length; ii < len; ii++) {
-      if (is(key, entries[ii][0])) {
-        return entries[ii][1];
-      }
-    }
-    return notSetValue;
-  }
-
-  update(ownerID, shift, keyHash, key, value, didChangeSize, didAlter) {
-    if (keyHash === undefined) {
-      keyHash = hash(key);
-    }
-
-    const removed = value === NOT_SET;
-
-    if (keyHash !== this.keyHash) {
-      if (removed) {
-        return this;
-      }
-      SetRef(didAlter);
-      SetRef(didChangeSize);
-      return mergeIntoNode(this, ownerID, shift, keyHash, [key, value]);
-    }
-
-    const entries = this.entries;
-    let idx = 0;
-    const len = entries.length;
-    for (; idx < len; idx++) {
-      if (is(key, entries[idx][0])) {
-        break;
-      }
-    }
-    const exists = idx < len;
-
-    if (exists ? entries[idx][1] === value : removed) {
-      return this;
-    }
-
-    SetRef(didAlter);
-    // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- TODO enable eslint here
-    (removed || !exists) && SetRef(didChangeSize);
-
-    if (removed && len === 2) {
-      return new ValueNode(ownerID, this.keyHash, entries[idx ^ 1]);
-    }
-
-    const isEditable = ownerID && ownerID === this.ownerID;
-    const newEntries = isEditable ? entries : arrCopy(entries);
-
-    if (exists) {
-      if (removed) {
-        // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- TODO enable eslint here
-        idx === len - 1
-          ? newEntries.pop()
-          : (newEntries[idx] = newEntries.pop());
-      } else {
-        newEntries[idx] = [key, value];
-      }
-    } else {
-      newEntries.push([key, value]);
-    }
-
-    if (isEditable) {
-      this.entries = newEntries;
-      return this;
-    }
-
-    return new HashCollisionNode(ownerID, this.keyHash, newEntries);
-  }
-}
-
-class ValueNode {
-  constructor(ownerID, keyHash, entry) {
-    this.ownerID = ownerID;
-    this.keyHash = keyHash;
-    this.entry = entry;
-  }
-
-  get(shift, keyHash, key, notSetValue) {
-    return is(key, this.entry[0]) ? this.entry[1] : notSetValue;
-  }
-
-  update(ownerID, shift, keyHash, key, value, didChangeSize, didAlter) {
-    const removed = value === NOT_SET;
-    const keyMatch = is(key, this.entry[0]);
-    if (keyMatch ? value === this.entry[1] : removed) {
-      return this;
-    }
-
-    SetRef(didAlter);
-
-    if (removed) {
-      SetRef(didChangeSize);
-      return; // undefined
-    }
-
-    if (keyMatch) {
-      if (ownerID && ownerID === this.ownerID) {
-        this.entry[1] = value;
-        return this;
-      }
-      return new ValueNode(ownerID, this.keyHash, [key, value]);
-    }
-
-    SetRef(didChangeSize);
-    return mergeIntoNode(this, ownerID, shift, hash(key), [key, value]);
-  }
-}
-
 // #pragma Iterators
-
-ArrayMapNode.prototype.iterate = HashCollisionNode.prototype.iterate =
+NodeArrayMap.prototype.iterate = NodeHashCollision.prototype.iterate =
   function (fn, reverse) {
     const entries = this.entries;
     for (let ii = 0, maxIndex = entries.length - 1; ii <= maxIndex; ii++) {
@@ -535,7 +190,7 @@ ArrayMapNode.prototype.iterate = HashCollisionNode.prototype.iterate =
     }
   };
 
-BitmapIndexedNode.prototype.iterate = HashArrayMapNode.prototype.iterate =
+NodeBitmapIndexed.prototype.iterate = NodeHashArrayMap.prototype.iterate =
   function (fn, reverse) {
     const nodes = this.nodes;
     for (let ii = 0, maxIndex = nodes.length - 1; ii <= maxIndex; ii++) {
@@ -547,7 +202,7 @@ BitmapIndexedNode.prototype.iterate = HashArrayMapNode.prototype.iterate =
   };
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-ValueNode.prototype.iterate = function (fn, reverse) {
+NodeValue.prototype.iterate = function (fn, reverse) {
   return fn(this.entry);
 };
 
@@ -633,11 +288,11 @@ function updateMap(map, k, v) {
       return map;
     }
     newSize = 1;
-    newRoot = new ArrayMapNode(map.__ownerID, [[k, v]]);
+    newRoot = new NodeArrayMap(map.__ownerID, [[k, v]]);
   } else {
     const didChangeSize = MakeRef();
     const didAlter = MakeRef();
-    newRoot = updateNode(
+    newRoot = nodeUpdate(
       map._root,
       map.__ownerID,
       0,
@@ -661,147 +316,3 @@ function updateMap(map, k, v) {
   }
   return newRoot ? makeMap(newSize, newRoot) : emptyMap();
 }
-
-function updateNode(
-  node,
-  ownerID,
-  shift,
-  keyHash,
-  key,
-  value,
-  didChangeSize,
-  didAlter
-) {
-  if (!node) {
-    if (value === NOT_SET) {
-      return node;
-    }
-    SetRef(didAlter);
-    SetRef(didChangeSize);
-    return new ValueNode(ownerID, keyHash, [key, value]);
-  }
-  return node.update(
-    ownerID,
-    shift,
-    keyHash,
-    key,
-    value,
-    didChangeSize,
-    didAlter
-  );
-}
-
-function isLeafNode(node) {
-  return (
-    node.constructor === ValueNode || node.constructor === HashCollisionNode
-  );
-}
-
-function mergeIntoNode(node, ownerID, shift, keyHash, entry) {
-  if (node.keyHash === keyHash) {
-    return new HashCollisionNode(ownerID, keyHash, [node.entry, entry]);
-  }
-
-  const idx1 = (shift === 0 ? node.keyHash : node.keyHash >>> shift) & MASK;
-  const idx2 = (shift === 0 ? keyHash : keyHash >>> shift) & MASK;
-
-  let newNode;
-  const nodes =
-    idx1 === idx2
-      ? [mergeIntoNode(node, ownerID, shift + SHIFT, keyHash, entry)]
-      : ((newNode = new ValueNode(ownerID, keyHash, entry)),
-        idx1 < idx2 ? [node, newNode] : [newNode, node]);
-
-  return new BitmapIndexedNode(ownerID, (1 << idx1) | (1 << idx2), nodes);
-}
-
-function createNodes(ownerID, entries, key, value) {
-  if (!ownerID) {
-    ownerID = new OwnerID();
-  }
-  let node = new ValueNode(ownerID, hash(key), [key, value]);
-  for (let ii = 0; ii < entries.length; ii++) {
-    const entry = entries[ii];
-    node = node.update(ownerID, 0, undefined, entry[0], entry[1]);
-  }
-  return node;
-}
-
-function packNodes(ownerID, nodes, count, excluding) {
-  let bitmap = 0;
-  let packedII = 0;
-  const packedNodes = new Array(count);
-  for (let ii = 0, bit = 1, len = nodes.length; ii < len; ii++, bit <<= 1) {
-    const node = nodes[ii];
-    if (node !== undefined && ii !== excluding) {
-      bitmap |= bit;
-      packedNodes[packedII++] = node;
-    }
-  }
-  return new BitmapIndexedNode(ownerID, bitmap, packedNodes);
-}
-
-function expandNodes(ownerID, nodes, bitmap, including, node) {
-  let count = 0;
-  const expandedNodes = new Array(SIZE);
-  for (let ii = 0; bitmap !== 0; ii++, bitmap >>>= 1) {
-    expandedNodes[ii] = bitmap & 1 ? nodes[count++] : undefined;
-  }
-  expandedNodes[including] = node;
-  return new HashArrayMapNode(ownerID, count + 1, expandedNodes);
-}
-
-function popCount(x) {
-  x -= (x >> 1) & 0x55555555;
-  x = (x & 0x33333333) + ((x >> 2) & 0x33333333);
-  x = (x + (x >> 4)) & 0x0f0f0f0f;
-  x += x >> 8;
-  x += x >> 16;
-  return x & 0x7f;
-}
-
-function setAt(array, idx, val, canEdit) {
-  const newArray = canEdit ? array : arrCopy(array);
-  newArray[idx] = val;
-  return newArray;
-}
-
-function spliceIn(array, idx, val, canEdit) {
-  const newLen = array.length + 1;
-  if (canEdit && idx + 1 === newLen) {
-    array[idx] = val;
-    return array;
-  }
-  const newArray = new Array(newLen);
-  let after = 0;
-  for (let ii = 0; ii < newLen; ii++) {
-    if (ii === idx) {
-      newArray[ii] = val;
-      after = -1;
-    } else {
-      newArray[ii] = array[ii + after];
-    }
-  }
-  return newArray;
-}
-
-function spliceOut(array, idx, canEdit) {
-  const newLen = array.length - 1;
-  if (canEdit && idx === newLen) {
-    array.pop();
-    return array;
-  }
-  const newArray = new Array(newLen);
-  let after = 0;
-  for (let ii = 0; ii < newLen; ii++) {
-    if (ii === idx) {
-      after = 1;
-    }
-    newArray[ii] = array[ii + after];
-  }
-  return newArray;
-}
-
-const MAX_ARRAY_MAP_SIZE = SIZE / 4;
-const MAX_BITMAP_INDEXED_SIZE = SIZE / 2;
-const MIN_HASH_ARRAY_MAP_SIZE = SIZE / 4;
