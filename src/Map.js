@@ -1,12 +1,7 @@
 import { Collection, KeyedCollection, KeyedCollectionImpl } from './Collection';
 import { IS_MAP_SYMBOL, isMap } from './predicates/isMap';
 import { isOrdered } from './predicates/isOrdered';
-import {
-  DELETE,
-  NOT_SET,
-
-  MakeRef
-} from './TrieUtils';
+import { DELETE, NOT_SET, MakeRef } from './TrieUtils';
 
 import { Iterator, iteratorValue, iteratorDone } from './Iterator';
 import { sortFactory } from './Operations';
